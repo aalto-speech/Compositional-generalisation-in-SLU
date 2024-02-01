@@ -1,0 +1,158 @@
+# Generated 2022-01-19 from:
+# /scratch/elec/t405-puhe/p/porjazd1/Metadata_Classification/TCN/asr_topic_speechbrain/mgb_asr/hyperparams.yaml
+# yamllint disable
+# Seed needs to be set at top of yaml, before objects with parameters are made
+seed: 1234
+__set_seed: !apply:torch.manual_seed [1234]
+
+skip_training: True
+
+output_folder: output_folder_ctc_slurp_easy_0.4
+pre_trained_folder: ../../libri_speech_model/output_folder_ctc/save/CKPT+2023-12-03+20-17-17+00/
+
+label_encoder_file: ../../libri_speech_model/output_folder_ctc/label_encoder.txt
+label_encoder_ner_file: label_encoder_ner.txt
+
+train_log: !ref <output_folder>/train_log.txt
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+  save_file: !ref <output_folder>/train_log.txt
+save_folder: !ref <output_folder>/save
+
+wer_file: !ref <output_folder>/wer_test.txt
+cer_file: !ref <output_folder>/cer_test.txt
+
+decode_text_file: !ref <output_folder>/text_test.txt
+
+wavlm_hub: microsoft/wavlm-base-plus
+wavlm_folder: !ref <save_folder>/wavlm_checkpoint
+
+# Feature parameters
+sample_rate: 22050
+new_sample_rate: 16000
+
+# Training params
+n_epochs: 30
+dataloader_options:
+  batch_size: 12
+  shuffle: false
+
+test_dataloader_options:
+  batch_size: 32
+  shuffle: false
+
+lr: 0.9
+lr_wavlm: 0.0001
+
+# wavlm params
+wavlm_neurons: 768
+freeze_wavlm: False
+freeze_wavlm_conv: True
+
+# Encoder parameters
+dnn_activation: !name:torch.nn.LeakyReLU
+dnn_neurons: 1024
+dnn_layers: 2
+
+# Outputs
+# output_neurons: 30
+output_neurons: 33
+output_neurons_ner: 110
+
+# Special tokens
+blank_index: 0
+
+# Feature normalization (mean and std)
+normalizer: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+
+# wavlm encoder
+wavlm: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
+    source: !ref <wavlm_hub>
+    output_norm: True
+    freeze: !ref <freeze_wavlm>
+    freeze_feature_extractor: !ref <freeze_wavlm_conv>
+    save_path: !ref <wavlm_folder>
+    output_all_hiddens: True
+
+encoder: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+   input_shape: [null, null, !ref <wavlm_neurons>]
+   activation: !ref <dnn_activation>
+   dnn_blocks: !ref <dnn_layers>
+   dnn_neurons: !ref <dnn_neurons>
+
+ctc_lin: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <dnn_neurons>
+    n_neurons: !ref <output_neurons>
+
+ner_lin: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <dnn_neurons>
+    n_neurons: !ref <output_neurons_ner>
+
+log_softmax: !new:speechbrain.nnet.activations.Softmax
+  apply_log: true
+
+ctc_cost: !name:speechbrain.nnet.losses.ctc_loss
+  blank_index: !ref <blank_index>
+
+model_opt_class: !name:torch.optim.Adadelta
+   lr: !ref <lr>
+   rho: 0.95
+   eps: 1.e-8
+
+wavlm_opt_class: !name:torch.optim.Adam
+   lr: !ref <lr_wavlm>
+
+lr_annealing_model: !new:speechbrain.nnet.schedulers.NewBobScheduler
+   initial_value: !ref <lr>
+   improvement_threshold: 0.0025
+   annealing_factor: 0.8
+   patient: 0
+
+lr_annealing_wavlm: !new:speechbrain.nnet.schedulers.NewBobScheduler
+   initial_value: !ref <lr_wavlm>
+   improvement_threshold: 0.0025
+   annealing_factor: 0.9
+   patient: 0
+
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+  limit: !ref <n_epochs>
+
+label_encoder: !new:speechbrain.dataio.encoder.CTCTextEncoder
+label_encoder_ner: !new:speechbrain.dataio.encoder.CTCTextEncoder
+
+resampler: !new:speechbrain.processing.speech_augmentation.Resample
+    orig_freq: !ref <sample_rate>
+    new_freq: !ref <new_sample_rate>
+
+# Functions that compute the statistics to track during the validation step.
+error_rate_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
+cer_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
+    split_tokens: true
+error_rate_computer_ner: !name:speechbrain.utils.metric_stats.ErrorRateStats
+
+modules:
+   wavlm: !ref <wavlm>
+   encoder: !ref <encoder>
+   ctc_lin: !ref <ctc_lin>
+   ner_lin: !ref <ner_lin>
+   
+model: !new:torch.nn.ModuleList
+   - [!ref <encoder>, !ref <ctc_lin>, !ref <ner_lin>]
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+   checkpoints_dir: !ref <save_folder>
+   recoverables:
+      wavlm: !ref <wavlm>
+      model: !ref <model>
+      scheduler_model: !ref <lr_annealing_model>
+      scheduler_wavlm: !ref <lr_annealing_wavlm>
+      counter: !ref <epoch_counter>
+
+pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
+    collect_in: !ref <pre_trained_folder>
+    loadables:
+        wavlm: !ref <wavlm>
+        model: !ref <model>
+    paths:
+        wavlm: !ref <pre_trained_folder>/wavlm.ckpt
+        model: !ref <pre_trained_folder>/model.ckpt
