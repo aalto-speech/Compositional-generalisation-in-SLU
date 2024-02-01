@@ -1,0 +1,1 @@
+This repository contains scripts for recreating the compositional generalization splits, as well as codes for recreating the baseline models.
