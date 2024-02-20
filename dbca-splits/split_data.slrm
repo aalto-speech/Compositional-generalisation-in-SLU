@@ -1,0 +1,8 @@
+#!/bin/bash
+#SBATCH --job-name=split_data
+#SBATCH --time=00:30:00
+#SBATCH --mem=2G
+#SBATCH --output=log/%x_%j.out
+
+args=("$@")
+python split_data.py ${args[@]}
